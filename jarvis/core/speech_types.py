@@ -39,6 +39,7 @@ class Utterance:
 
 class CommandSource(StrEnum):
     VOICE = "voice"
+    AMBIENT = "ambient"
     TEXT = "text"
     SYSTEM = "system"
 

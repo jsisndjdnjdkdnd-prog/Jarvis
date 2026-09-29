@@ -179,4 +179,4 @@ def test_learn_binding_without_punctuation(parser: IntentParser, normalizer: Tex
 
 
 def test_unknown_phrase_returns_none(parser: IntentParser, normalizer: TextNormalizer) -> None:
-    assert parse(parser, normalizer, "яка погода в києві") is None
+    assert parse(parser, normalizer, "поясни мені квантову фізику") is None

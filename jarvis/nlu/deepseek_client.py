@@ -4,7 +4,9 @@ import json
 import logging
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
+from enum import StrEnum
 from typing import Any, TypeVar
 
 from pydantic import ValidationError
@@ -26,6 +28,17 @@ RETRY_INSTRUCTION = (
     "Your previous answer was invalid: {error}. "
     "Reply again with ONLY one valid JSON object that follows the schema exactly."
 )
+
+
+class ChatRole(StrEnum):
+    USER = "user"
+    ASSISTANT = "assistant"
+
+
+@dataclass(frozen=True)
+class ChatTurn:
+    role: ChatRole
+    content: str
 
 
 class DeepSeekClient:
@@ -53,16 +66,19 @@ class DeepSeekClient:
         user_prompt: str,
         purpose: str,
         parse: Callable[[dict[str, Any]], T],
+        *,
+        temperature: float | None = None,
+        prior_messages: Sequence[ChatTurn] = (),
     ) -> T:
         if not self.available:
             raise DeepSeekUnavailableError("DeepSeek вимкнено або не задано DEEPSEEK_API_KEY")
-        messages: list[dict[str, str]] = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ]
+        messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
+        messages.extend({"role": turn.role.value, "content": turn.content} for turn in prior_messages)
+        messages.append({"role": "user", "content": user_prompt})
+        effective_temperature = self._settings.temperature if temperature is None else temperature
         last_error = "порожня відповідь"
         for _ in range(self._settings.max_retries + 1):
-            content = self._request(messages, purpose)
+            content = self._request(messages, purpose, effective_temperature)
             try:
                 return parse(self._decode(content))
             except (json.JSONDecodeError, ValidationError, ValueError) as error:
@@ -80,7 +96,7 @@ class DeepSeekClient:
             raise ValueError("очікувався JSON-об'єкт")
         return data
 
-    def _request(self, messages: list[dict[str, str]], purpose: str) -> str:
+    def _request(self, messages: list[dict[str, str]], purpose: str, temperature: float) -> str:
         import openai
 
         started = time.perf_counter()
@@ -90,7 +106,7 @@ class DeepSeekClient:
                 messages=messages,
                 response_format={"type": "json_object"},
                 max_tokens=self._settings.max_tokens,
-                temperature=self._settings.temperature,
+                temperature=temperature,
                 timeout=self._settings.timeout_seconds,
             )
         except openai.OpenAIError as error:
