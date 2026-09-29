@@ -16,6 +16,7 @@ from jarvis.core.events import (
     ShutdownRequested,
     SpeakRequested,
     SpeechFinished,
+    SpeechInterruptRequested,
     SpeechStarted,
 )
 from jarvis.core.speech_types import AssistantState
@@ -41,6 +42,8 @@ _STOP = object()
 class Speaker(Protocol):
     def speak(self, text: str) -> None: ...
 
+    def interrupt(self) -> None: ...
+
 
 class EdgeTtsSpeaker:
     def __init__(self, settings: TtsSection, cache_dir: Path, player: AudioPlayer) -> None:
@@ -50,6 +53,9 @@ class EdgeTtsSpeaker:
 
     def speak(self, text: str) -> None:
         self._player.play_file(self.synthesize(text))
+
+    def interrupt(self) -> None:
+        self._player.interrupt()
 
     def synthesize(self, text: str) -> Path:
         path = self._cache_path(text)
@@ -91,6 +97,13 @@ class Pyttsx3Speaker:
         except RuntimeError as error:
             raise SpeechSynthesisError(f"pyttsx3: {error}") from error
 
+    def interrupt(self) -> None:
+        if self._engine is not None:
+            try:
+                self._engine.stop()
+            except RuntimeError as error:
+                logger.debug("pyttsx3 не зупинився: %s", error)
+
     def _ensure_engine(self) -> Any:
         if self._engine is not None:
             return self._engine
@@ -128,6 +141,11 @@ class FallbackSpeaker:
             logger.warning("Основний TTS недоступний (%s) — використовую офлайн-голос", error)
         self._fallback.speak(text)
 
+    def interrupt(self) -> None:
+        self._primary.interrupt()
+        if self._fallback is not None:
+            self._fallback.interrupt()
+
 
 class SpeechService:
     def __init__(
@@ -146,6 +164,7 @@ class SpeechService:
 
     def start(self) -> None:
         self._bus.subscribe(SpeakRequested, self._on_speak)
+        self._bus.subscribe(SpeechInterruptRequested, self._on_interrupt)
         self._bus.subscribe(ShutdownRequested, lambda _: self.stop())
         self._thread = threading.Thread(target=self._run, name="tts", daemon=True)
         self._thread.start()
@@ -158,6 +177,23 @@ class SpeechService:
     def _on_speak(self, event: SpeakRequested) -> None:
         if self._settings.enabled and event.text.strip():
             self._queue.put(event.text)
+
+    def _on_interrupt(self, event: SpeechInterruptRequested) -> None:
+        self._drain()
+        try:
+            self._speaker.interrupt()
+        except (SpeechSynthesisError, AudioDeviceError) as error:
+            logger.debug("Переривання мовлення не вдалося: %s", error)
+
+    def _drain(self) -> None:
+        while True:
+            try:
+                item = self._queue.get_nowait()
+            except queue.Empty:
+                return
+            if item is _STOP:
+                self._queue.put(_STOP)
+                return
 
     def _run(self) -> None:
         while True:

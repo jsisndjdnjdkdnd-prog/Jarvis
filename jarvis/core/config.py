@@ -38,6 +38,27 @@ class WakeSection(_Section):
     words: list[str] = Field(default_factory=lambda: ["джарвіс", "джарвис", "jarvis"])
     threshold: float = 80.0
     min_command_tail_seconds: float = 0.4
+    acknowledge: bool = True
+    conversation_mode: bool = True
+    conversation_timeout_seconds: float = 20.0
+    always_listen: bool = False
+
+
+class SttEngine(StrEnum):
+    VOSK = "vosk"
+    WHISPER = "whisper"
+
+
+class WhisperSection(_Section):
+    model: str = "small"
+    device: str = "auto"
+    compute_type: str = "int8"
+    beam_size: int = 5
+    language: str = "uk"
+    download_dir: Path = Path("models/whisper")
+    vad_filter: bool = True
+    hint_phrases: int = 60
+    preload: bool = True
 
 
 class SpeechSection(_Section):
@@ -55,6 +76,9 @@ class SpeechSection(_Section):
     max_command_seconds: float = 12.0
     min_word_confidence: float = 0.55
     grammar_enabled: bool = True
+    engine: SttEngine = SttEngine.WHISPER
+    whisper: WhisperSection = Field(default_factory=WhisperSection)
+    normalize_audio: bool = True
 
 
 class TtsSection(_Section):
@@ -88,6 +112,20 @@ class DeepSeekSection(_Section):
     max_tokens: int = 400
     max_retries: int = 2
     temperature: float = 0.0
+
+
+class DialogueSection(_Section):
+    llm_small_talk: bool = True
+    history_turns: int = 8
+    user_title: str = "сер"
+    max_reply_sentences: int = 3
+    temperature: float = 0.8
+
+
+class LocationSection(_Section):
+    city: str = "Київ"
+    latitude: float | None = None
+    longitude: float | None = None
 
 
 class MusicBackend(StrEnum):
@@ -157,6 +195,8 @@ class AppConfig(_Section):
     tts: TtsSection = Field(default_factory=TtsSection)
     nlu: NluSection = Field(default_factory=NluSection)
     deepseek: DeepSeekSection = Field(default_factory=DeepSeekSection)
+    dialogue: DialogueSection = Field(default_factory=DialogueSection)
+    location: LocationSection = Field(default_factory=LocationSection)
     music: MusicSection = Field(default_factory=MusicSection)
     screenshots: ScreenshotsSection = Field(default_factory=ScreenshotsSection)
     system: SystemSection = Field(default_factory=SystemSection)

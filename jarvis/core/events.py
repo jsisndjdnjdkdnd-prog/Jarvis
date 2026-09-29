@@ -76,6 +76,21 @@ class ListenRequested(Event):
 
 
 @dataclass(frozen=True)
+class ConversationEnded(Event):
+    pass
+
+
+@dataclass(frozen=True)
+class ListeningModeChanged(Event):
+    always_listen: bool
+
+
+@dataclass(frozen=True)
+class SpeechInterruptRequested(Event):
+    pass
+
+
+@dataclass(frozen=True)
 class ListenerPauseRequested(Event):
     paused: bool
     reason: str

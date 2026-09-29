@@ -84,13 +84,13 @@ class NaturalTimeParser:
         self._durations = durations or DurationParser(self._numbers)
         self._use_dateparser = use_dateparser
 
-    def extract(self, text: str) -> TimeExtraction | None:
+    def extract(self, text: str, prefer_afternoon: bool = True) -> TimeExtraction | None:
         tokens = self._numbers.convert(text).split()
         now = self._clock()
         relative = self._extract_relative(tokens, now)
         if relative is not None:
             return relative
-        absolute = self._extract_absolute(tokens, now)
+        absolute = self._extract_absolute(tokens, now, prefer_afternoon)
         if absolute is not None:
             return absolute
         return self._extract_with_dateparser(text, now)
@@ -106,7 +106,9 @@ class NaturalTimeParser:
             return TimeExtraction(now + timedelta(seconds=seconds), " ".join(remainder))
         return None
 
-    def _extract_absolute(self, tokens: list[str], now: datetime) -> TimeExtraction | None:
+    def _extract_absolute(
+        self, tokens: list[str], now: datetime, prefer_afternoon: bool = True
+    ) -> TimeExtraction | None:
         day = self._find_day(tokens, now)
         clock = self._find_clock(tokens)
         period, period_index = self._find_period(tokens)
@@ -125,7 +127,7 @@ class NaturalTimeParser:
             target_time,
             now,
             explicit_time=clock is not None or period is not None,
-            allow_afternoon_shift=clock is not None and period is None,
+            allow_afternoon_shift=prefer_afternoon and clock is not None and period is None,
         )
         remainder = [token for index, token in enumerate(tokens) if index not in used]
         return TimeExtraction(when, " ".join(remainder))

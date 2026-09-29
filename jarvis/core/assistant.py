@@ -15,10 +15,12 @@ from jarvis.core.events import (
     AssistantStateChanged,
     CommandHandled,
     CommandReceived,
+    ConversationEnded,
     CorrectionRequested,
     ListenRequested,
     ShutdownRequested,
     SpeakRequested,
+    SpeechInterruptRequested,
 )
 from jarvis.core.intent import Intent, IntentName, ResolutionStage
 from jarvis.core.models import VocabularyAlias
@@ -30,6 +32,10 @@ NOT_UNDERSTOOD_REPLY = "Вибачте, сер, я не зрозумів ком�
 FAILURE_REPLY = "Сталася помилка, сер. Деталі в журналі."
 NOTHING_TO_CONFIRM_REPLY = "Немає чого підтверджувати, сер."
 CORRECTION_REPLY = "Зрозумів, сер. Врахую на майбутнє."
+CONTINUING_INTENTS: frozenset[IntentName] = frozenset(
+    {IntentName.END_CONVERSATION, IntentName.STOP_SPEAKING, IntentName.SHUTDOWN_PC, IntentName.SLEEP_PC}
+)
+SILENT_INTENTS: frozenset[IntentName] = frozenset({IntentName.STOP_SPEAKING})
 _STOP = object()
 
 
@@ -161,6 +167,9 @@ class Assistant:
         intent = interpretation.intent
         if intent.name is IntentName.CORRECTION:
             return self._correct()
+        if intent.name is IntentName.STOP_SPEAKING:
+            self._bus.publish(SpeechInterruptRequested())
+            return _Outcome(SkillResult("", speak=False), intent, interpretation.stage)
         if intent.name in (IntentName.CONFIRM, IntentName.DENY):
             return _Outcome(SkillResult(NOTHING_TO_CONFIRM_REPLY, success=False), intent, interpretation.stage)
         self._bus.publish(AssistantStateChanged(AssistantState.EXECUTING))
@@ -185,8 +194,10 @@ class Assistant:
         normalized: str | None = None,
     ) -> None:
         result = outcome.result
-        follow_up = result.confirmation is not None and source is CommandSource.VOICE
-        self._reply(result.reply, result.success, follow_up)
+        follow_up = self._should_continue(source, outcome)
+        self._reply(result.reply, result.success, follow_up, speak=result.speak)
+        if result.end_conversation:
+            self._bus.publish(ConversationEnded())
         intent_name = outcome.intent.name.value if outcome.intent is not None else None
         stage = outcome.stage.value if outcome.stage is not None else None
         self._bus.publish(CommandHandled(item_text, result.reply, intent_name, stage, result.success))
@@ -203,8 +214,21 @@ class Assistant:
         except StorageError:
             logger.exception("Не вдалося записати історію команд")
 
-    def _reply(self, text: str, success: bool, follow_up: bool) -> None:
+    def _should_continue(self, source: CommandSource, outcome: _Outcome) -> bool:
+        if source is not CommandSource.VOICE:
+            return False
+        if outcome.result.confirmation is not None:
+            return True
+        if outcome.result.end_conversation:
+            return False
+        intent = outcome.intent
+        if intent is not None and intent.name in CONTINUING_INTENTS:
+            return False
+        return self._context.conversation_mode
+
+    def _reply(self, text: str, success: bool, follow_up: bool, speak: bool = True) -> None:
         self._bus.publish(AssistantReplied(text, success))
-        self._bus.publish(SpeakRequested(text))
+        if speak and text:
+            self._bus.publish(SpeakRequested(text))
         if follow_up:
             self._bus.publish(ListenRequested(follow_up=True))

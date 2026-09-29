@@ -11,12 +11,16 @@ from jarvis.core.event_bus import EventBus
 from jarvis.core.events import NowPlayingChanged
 from jarvis.core.intent import Intent, IntentName
 from jarvis.core.models import PlayedTrack, PreferenceKind, Track
+from jarvis.skills.input_control import InputController, MediaKey
 from jarvis.skills.media_soundcloud.player import MusicPlayer
 from jarvis.skills.media_soundcloud.recommender import MusicRecommender
 from jarvis.skills.media_soundcloud.search import TrackRanker, TrackSearch
 from jarvis.storage.repositories.preferences import ListeningHistoryRepository, PreferenceRepository
 
 logger = logging.getLogger(__name__)
+
+SESSION_HISTORY_SIZE = 20
+NO_PREVIOUS_REPLY = "Попереднього треку немає, сер."
 
 
 class MusicService:
@@ -44,6 +48,7 @@ class MusicService:
         self._current: Track | None = None
         self._recommendation_mode = False
         self._hint: str | None = None
+        self._started: deque[Track] = deque(maxlen=SESSION_HISTORY_SIZE)
         self._player.set_on_finished(self._on_track_finished)
 
     @property
@@ -54,6 +59,10 @@ class MusicService:
     @property
     def supports_control(self) -> bool:
         return self._player.supports_control
+
+    @property
+    def is_active(self) -> bool:
+        return self.supports_control and self.current is not None
 
     def play_query(self, query: str) -> Track:
         tracks = self._search.search(query, self._settings.search_results)
@@ -85,6 +94,21 @@ class MusicService:
         if recommend or self._current is not None:
             return self.play_recommended(hint)
         raise MusicError("Черга порожня, сер.")
+
+    def previous(self) -> Track:
+        with self._lock:
+            current = self._current
+            earlier = list(self._started)
+            if current is not None and earlier:
+                earlier.pop()
+        if not earlier:
+            raise MusicError(NO_PREVIOUS_REPLY)
+        track = self._start(earlier[-1])
+        with self._lock:
+            self._started = deque(earlier, maxlen=SESSION_HISTORY_SIZE)
+            if current is not None:
+                self._queue.appendleft(current)
+        return track
 
     def pause(self) -> None:
         self._player.pause()
@@ -119,6 +143,7 @@ class MusicService:
         self._player.play(track)
         with self._lock:
             self._current = track
+            self._started.append(track)
         self._remember(track)
         self._bus.publish(NowPlayingChanged(track))
         logger.info("Грає: %s", track.display_name)
@@ -144,6 +169,12 @@ class MusicService:
             self.next()
         except MusicError as error:
             logger.info("Автовідтворення зупинено: %s", error)
+            self._mark_idle()
+
+    def _mark_idle(self) -> None:
+        with self._lock:
+            self._current = None
+        self._bus.publish(NowPlayingChanged(None))
 
 
 class MusicSkill:
@@ -155,6 +186,7 @@ class MusicSkill:
             IntentName.MUSIC_PAUSE,
             IntentName.MUSIC_RESUME,
             IntentName.MUSIC_NEXT,
+            IntentName.MUSIC_PREVIOUS,
             IntentName.MUSIC_STOP,
             IntentName.MUSIC_NOW_PLAYING,
             IntentName.MUSIC_LIKE,
@@ -163,9 +195,10 @@ class MusicSkill:
         }
     )
 
-    def __init__(self, music: MusicService, settings: MusicSection) -> None:
+    def __init__(self, music: MusicService, settings: MusicSection, media_keys: InputController) -> None:
         self._music = music
         self._settings = settings
+        self._media_keys = media_keys
 
     def handle(self, intent: Intent, context: DialogContext) -> SkillResult:
         handlers = {
@@ -174,6 +207,7 @@ class MusicSkill:
             IntentName.MUSIC_PAUSE: self._pause,
             IntentName.MUSIC_RESUME: self._resume,
             IntentName.MUSIC_NEXT: self._next,
+            IntentName.MUSIC_PREVIOUS: self._previous,
             IntentName.MUSIC_STOP: self._stop,
             IntentName.MUSIC_NOW_PLAYING: self._now_playing,
             IntentName.MUSIC_LIKE: self._like,
@@ -195,26 +229,41 @@ class MusicSkill:
         return SkillResult(f"На мій смак — {track.display_name}.", learnable=False)
 
     def _pause(self, intent: Intent, context: DialogContext) -> SkillResult:
+        if not self._music.is_active:
+            return self._press(MediaKey.PLAY_PAUSE, "Пауза.")
         self._music.pause()
         return SkillResult("Пауза.")
 
     def _resume(self, intent: Intent, context: DialogContext) -> SkillResult:
+        if not self._music.is_active:
+            return self._press(MediaKey.PLAY_PAUSE, "Продовжую.")
         self._music.resume()
         return SkillResult("Продовжую.")
 
     def _next(self, intent: Intent, context: DialogContext) -> SkillResult:
+        if not self._music.is_active:
+            return self._press(MediaKey.NEXT, "Наступний.")
         track = self._music.next()
         context.remember_track(track)
         return SkillResult(f"Далі: {track.display_name}.")
 
+    def _previous(self, intent: Intent, context: DialogContext) -> SkillResult:
+        if not self._music.is_active:
+            return self._press(MediaKey.PREVIOUS, "Попередній.")
+        track = self._music.previous()
+        context.remember_track(track)
+        return SkillResult(f"Повертаю: {track.display_name}.")
+
     def _stop(self, intent: Intent, context: DialogContext) -> SkillResult:
+        if not self._music.is_active:
+            return self._press(MediaKey.STOP, "Зупинив.")
         self._music.stop()
         return SkillResult("Музику вимкнено.")
 
     def _now_playing(self, intent: Intent, context: DialogContext) -> SkillResult:
         track = self._music.current
         if track is None:
-            return SkillResult("Зараз нічого не грає, сер.")
+            return SkillResult("У моєму плеєрі зараз нічого не грає, сер.")
         return SkillResult(f"Зараз грає {track.display_name}.")
 
     def _like(self, intent: Intent, context: DialogContext) -> SkillResult:
@@ -228,3 +277,7 @@ class MusicSkill:
     def _quieter(self, intent: Intent, context: DialogContext) -> SkillResult:
         volume = self._music.change_volume(-(intent.amount or self._settings.volume_step))
         return SkillResult(f"Гучність плеєра {volume}%.")
+
+    def _press(self, key: MediaKey, reply: str) -> SkillResult:
+        self._media_keys.press_media(key)
+        return SkillResult(reply)

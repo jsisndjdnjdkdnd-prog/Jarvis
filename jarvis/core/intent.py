@@ -47,6 +47,26 @@ class IntentName(StrEnum):
     GREETING = "greeting"
     THANKS = "thanks"
     CHAT = "chat"
+    SMALL_TALK = "small_talk"
+    CAPABILITIES = "capabilities"
+    REPEAT = "repeat"
+    STOP_SPEAKING = "stop_speaking"
+    END_CONVERSATION = "end_conversation"
+    LISTEN_MODE = "listen_mode"
+    MUSIC_PREVIOUS = "music_previous"
+    YOUTUBE_PLAY = "youtube_play"
+    YOUTUBE_CONTROL = "youtube_control"
+    WEB_SEARCH = "web_search"
+    WEATHER = "weather"
+    CALCULATE = "calculate"
+    SYSTEM_INFO = "system_info"
+    WINDOW_CONTROL = "window_control"
+    TYPE_TEXT = "type_text"
+    VOLUME_GET = "volume_get"
+    SLEEP_PC = "sleep_pc"
+    EMPTY_RECYCLE_BIN = "empty_recycle_bin"
+    OPEN_SETTINGS = "open_settings"
+    RUN_PLAN = "run_plan"
     UNKNOWN = "unknown"
 
 
@@ -54,6 +74,77 @@ class ScreenshotMode(StrEnum):
     FULL = "full"
     WINDOW = "window"
     REGION = "region"
+
+
+class SmallTalkTopic(StrEnum):
+    MOOD = "mood"
+    IDENTITY = "identity"
+    CREATOR = "creator"
+    JOKE = "joke"
+    COMPLIMENT = "compliment"
+    GOODNIGHT = "goodnight"
+    WELCOME_HOME = "welcome_home"
+    BORED = "bored"
+    LOVE = "love"
+    GENERIC = "generic"
+
+
+class YouTubeCommand(StrEnum):
+    TOGGLE = "toggle"
+    PAUSE = "pause"
+    PLAY = "play"
+    SUBTITLES = "subtitles"
+    FULLSCREEN = "fullscreen"
+    MUTE = "mute"
+    FORWARD = "forward"
+    BACKWARD = "backward"
+    NEXT = "next"
+    PREVIOUS = "previous"
+    FASTER = "faster"
+    SLOWER = "slower"
+    THEATER = "theater"
+
+
+class WindowCommand(StrEnum):
+    MINIMIZE_ALL = "minimize_all"
+    MINIMIZE = "minimize"
+    MAXIMIZE = "maximize"
+    RESTORE = "restore"
+    CLOSE = "close"
+    SWITCH = "switch"
+    NEW_TAB = "new_tab"
+    CLOSE_TAB = "close_tab"
+    REOPEN_TAB = "reopen_tab"
+    NEXT_TAB = "next_tab"
+    REFRESH = "refresh"
+    BACK = "back"
+    FORWARD = "forward"
+    ZOOM_IN = "zoom_in"
+    ZOOM_OUT = "zoom_out"
+    SCROLL_DOWN = "scroll_down"
+    SCROLL_UP = "scroll_up"
+    FULLSCREEN = "fullscreen"
+    COPY = "copy"
+    PASTE = "paste"
+    UNDO = "undo"
+    SELECT_ALL = "select_all"
+    SAVE = "save"
+    CLOSE_ALL = "close_all"
+
+
+class SystemInfoKind(StrEnum):
+    BATTERY = "battery"
+    CPU = "cpu"
+    MEMORY = "memory"
+    DISK = "disk"
+    UPTIME = "uptime"
+    ALL = "all"
+
+
+class WeatherPeriod(StrEnum):
+    NOW = "now"
+    TODAY = "today"
+    TOMORROW = "tomorrow"
 
 
 class ActionType(StrEnum):

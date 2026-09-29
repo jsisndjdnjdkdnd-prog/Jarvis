@@ -248,16 +248,27 @@ class WavFile:
 class AudioPlayer:
     def __init__(self) -> None:
         self._lock = threading.Lock()
+        self._interrupted = threading.Event()
 
     def play_samples(self, samples: np.ndarray, sample_rate: int) -> None:
         import sounddevice as sd
 
         with self._lock:
+            self._interrupted.clear()
             try:
                 sd.play(samples, samplerate=sample_rate)
                 sd.wait()
             except sd.PortAudioError as error:
                 raise AudioDeviceError(f"Помилка відтворення: {error}") from error
+
+    def interrupt(self) -> None:
+        import sounddevice as sd
+
+        self._interrupted.set()
+        try:
+            sd.stop()
+        except sd.PortAudioError as error:
+            logger.debug("Не вдалося зупинити відтворення: %s", error)
 
     def play_file(self, path: Path) -> None:
         import miniaudio

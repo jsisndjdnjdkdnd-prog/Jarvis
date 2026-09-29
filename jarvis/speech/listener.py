@@ -11,8 +11,10 @@ from jarvis.core.event_bus import EventBus
 from jarvis.core.events import (
     AssistantStateChanged,
     CommandReceived,
+    ConversationEnded,
     ErrorOccurred,
     ListenerPauseRequested,
+    ListeningModeChanged,
     ListenRequested,
     MicLevelChanged,
     SpeakRequested,
@@ -29,7 +31,7 @@ from jarvis.speech.audio_io import (
     chunk_level,
 )
 from jarvis.speech.grammar import GrammarProvider
-from jarvis.speech.recognizer_vosk import SpeechTranscriber
+from jarvis.speech.recognizer_vosk import SpeechTranscriber as Transcriber
 from jarvis.speech.wake_word import WakeDetection, WakeWordDetector
 
 logger = logging.getLogger(__name__)
@@ -44,10 +46,11 @@ class VoiceListener:
         self,
         bus: EventBus,
         microphone: MicrophoneStream,
-        transcriber: SpeechTranscriber,
+        transcriber: Transcriber,
         detector_factory: Callable[[], WakeWordDetector],
         grammar: GrammarProvider,
         settings: SpeechSection,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._bus = bus
         self._microphone = microphone
@@ -55,6 +58,7 @@ class VoiceListener:
         self._detector_factory = detector_factory
         self._grammar = grammar
         self._settings = settings
+        self._clock = clock
         self._running = threading.Event()
         self._listen_requested = threading.Event()
         self._speaking = threading.Event()
@@ -65,12 +69,17 @@ class VoiceListener:
         self._detector: WakeWordDetector | None = None
         self._capture: UtteranceSegmenter | None = None
         self._last_level_at = 0.0
+        self._conversation_deadline = 0.0
+        self._follow_up = False
+        self._always_listen = settings.wake.always_listen
 
     def start(self) -> None:
         self._bus.subscribe(ListenRequested, self._on_listen_requested)
         self._bus.subscribe(SpeechStarted, self._on_speech_started)
         self._bus.subscribe(SpeechFinished, self._on_speech_finished)
         self._bus.subscribe(ListenerPauseRequested, self._on_pause_requested)
+        self._bus.subscribe(ConversationEnded, self._on_conversation_ended)
+        self._bus.subscribe(ListeningModeChanged, self._on_mode_changed)
         self._subscription = self._microphone.subscribe()
         self._running.set()
         self._thread = threading.Thread(target=self._run, name="voice-listener", daemon=True)
@@ -84,6 +93,9 @@ class VoiceListener:
             self._thread.join(timeout=2)
 
     def _on_listen_requested(self, event: ListenRequested) -> None:
+        if event.follow_up:
+            self._extend_conversation()
+        self._follow_up = event.follow_up
         self._listen_requested.set()
 
     def _on_speech_started(self, event: SpeechStarted) -> None:
@@ -101,14 +113,31 @@ class VoiceListener:
             else:
                 self._pause_reasons.discard(event.reason)
 
+    def _on_conversation_ended(self, event: ConversationEnded) -> None:
+        self._conversation_deadline = 0.0
+        self._follow_up = False
+        self._capture = None
+
+    def _on_mode_changed(self, event: ListeningModeChanged) -> None:
+        self._always_listen = event.always_listen
+        if not event.always_listen:
+            self._conversation_deadline = 0.0
+
     def _is_paused(self) -> bool:
         with self._pause_lock:
             return bool(self._pause_reasons)
 
+    def _extend_conversation(self) -> None:
+        if self._settings.wake.conversation_mode:
+            self._conversation_deadline = self._clock() + self._settings.wake.conversation_timeout_seconds
+
+    def _in_conversation(self) -> bool:
+        return self._always_listen or self._clock() < self._conversation_deadline
+
     def _restart_capture_if_idle(self) -> None:
         capture = self._capture
         if capture is not None and not capture.speech_started:
-            self._capture = self._new_segmenter()
+            self._capture = self._new_segmenter(self._follow_up)
 
     def _run(self) -> None:
         subscription = self._subscription
@@ -120,6 +149,7 @@ class VoiceListener:
             self._start_requested_capture()
             if chunk is None:
                 self._check_capture_timeout()
+                self._maybe_resume_conversation()
                 continue
             self._process_chunk(chunk)
 
@@ -137,7 +167,16 @@ class VoiceListener:
         if not self._listen_requested.is_set():
             return
         self._listen_requested.clear()
-        self._begin_capture()
+        self._begin_capture(self._follow_up)
+
+    def _maybe_resume_conversation(self) -> None:
+        if self._capture is not None or self._speaking.is_set() or self._is_paused():
+            return
+        if self._always_listen and self._settings.wake.enabled is False:
+            self._begin_capture(follow_up=True)
+            return
+        if self._always_listen and self._detector is None:
+            self._begin_capture(follow_up=True)
 
     def _process_chunk(self, chunk: bytes) -> None:
         level = chunk_level(chunk)
@@ -159,7 +198,7 @@ class VoiceListener:
             self._detector.reset()
 
     def _publish_level(self, level: float) -> None:
-        now = time.monotonic()
+        now = self._clock()
         if now - self._last_level_at < LEVEL_PUBLISH_INTERVAL:
             return
         self._last_level_at = now
@@ -175,26 +214,32 @@ class VoiceListener:
             self._bus.publish(AssistantStateChanged(AssistantState.IDLE))
             return
         self._announce_wake()
+        self._extend_conversation()
         if detection.tail_word_count > 0 and detection.tail_seconds >= self._settings.wake.min_command_tail_seconds:
             self._submit(detection.tail_audio)
             return
-        self._begin_capture()
+        self._begin_capture(follow_up=False)
 
     def _announce_wake(self) -> None:
         self._bus.publish(WakeWordDetected("джарвіс"))
         self._bus.publish(AssistantStateChanged(AssistantState.LISTENING))
 
-    def _begin_capture(self) -> None:
+    def _begin_capture(self, follow_up: bool) -> None:
         if self._detector is not None:
             self._detector.reset()
-        self._capture = self._new_segmenter()
+        self._capture = self._new_segmenter(follow_up)
         self._bus.publish(AssistantStateChanged(AssistantState.LISTENING))
 
-    def _new_segmenter(self) -> UtteranceSegmenter:
+    def _new_segmenter(self, follow_up: bool) -> UtteranceSegmenter:
+        start_timeout = (
+            self._settings.wake.conversation_timeout_seconds
+            if follow_up and self._settings.wake.conversation_mode
+            else self._settings.command_timeout_seconds
+        )
         limits = RecordingLimits(
             max_seconds=self._settings.max_command_seconds,
             end_silence_seconds=COMMAND_END_SILENCE,
-            start_timeout_seconds=self._settings.command_timeout_seconds,
+            start_timeout_seconds=start_timeout,
         )
         return UtteranceSegmenter(self._microphone.sample_rate, limits)
 
@@ -213,10 +258,14 @@ class VoiceListener:
         if capture is None or self._speaking.is_set() or not capture.timed_out():
             return
         self._capture = None
-        logger.info("Команду не почуто — повертаюсь до очікування wake word")
+        if self._in_conversation() and not self._always_listen and self._clock() >= self._conversation_deadline:
+            self._bus.publish(ConversationEnded())
+        logger.info("Команду не почуто — повертаюсь до очікування")
         self._bus.publish(AssistantStateChanged(AssistantState.IDLE))
 
     def _submit(self, pcm: bytes) -> None:
+        source = CommandSource.AMBIENT if self._always_listen and not self._follow_up else CommandSource.VOICE
+        self._follow_up = False
         self._bus.publish(AssistantStateChanged(AssistantState.THINKING))
         try:
             transcript = self._transcriber.transcribe_command(pcm, self._grammar.phrases())
@@ -226,9 +275,10 @@ class VoiceListener:
             self._bus.publish(AssistantStateChanged(AssistantState.IDLE))
             return
         if transcript.is_empty:
-            self._bus.publish(SpeakRequested(NOT_HEARD_REPLY))
+            if source is not CommandSource.AMBIENT:
+                self._bus.publish(SpeakRequested(NOT_HEARD_REPLY))
             self._bus.publish(AssistantStateChanged(AssistantState.IDLE))
             return
         logger.info("Розпізнано: «%s» (%.2f)", transcript.text, transcript.confidence)
         utterance = Utterance(transcript=transcript, audio=pcm, sample_rate=self._microphone.sample_rate)
-        self._bus.publish(CommandReceived(transcript.text, CommandSource.VOICE, utterance))
+        self._bus.publish(CommandReceived(transcript.text, source, utterance))

@@ -19,6 +19,8 @@ class SkillResult:
     success: bool = True
     confirmation: PendingConfirmation | None = None
     learnable: bool = True
+    end_conversation: bool = False
+    speak: bool = True
 
 
 @dataclass(frozen=True)
@@ -41,8 +43,9 @@ class ExchangeRecord:
 
 
 class DialogContext:
-    def __init__(self, clock: Callable[[], float] = time.monotonic) -> None:
+    def __init__(self, conversation_mode: bool = True, clock: Callable[[], float] = time.monotonic) -> None:
         self._clock = clock
+        self.conversation_mode = conversation_mode
         self._lock = threading.RLock()
         self._last_program: Program | None = None
         self._last_track: Track | None = None

@@ -92,10 +92,10 @@ def test_deepseek_result_is_cached(repositories: Repositories, parser: IntentPar
 
 
 def test_chat_is_not_cached(repositories: Repositories, parser: IntentParser) -> None:
-    resolver = FakeResolver(Intent(name=IntentName.CHAT, reply="Сонячно"))
+    resolver = FakeResolver(Intent(name=IntentName.CHAT, reply="Це розділ фізики, сер."))
     pipeline = build_pipeline(repositories, parser, resolver)
-    pipeline.resolve(utterance("яка погода"))
-    pipeline.resolve(utterance("яка погода"))
+    pipeline.resolve(utterance("поясни квантову фізику"))
+    pipeline.resolve(utterance("поясни квантову фізику"))
     assert len(resolver.calls) == 2
 
 
