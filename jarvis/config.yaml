@@ -20,6 +20,18 @@ speech:
     - en
     - ru
   secondary_min_confidence: 0.6
+  engine: whisper
+  normalize_audio: true
+  whisper:
+    model: small
+    device: auto
+    compute_type: int8
+    beam_size: 5
+    language: uk
+    download_dir: models/whisper
+    vad_filter: true
+    hint_phrases: 60
+    preload: true
   wake:
     enabled: true
     words:
@@ -28,6 +40,10 @@ speech:
       - jarvis
     threshold: 80
     min_command_tail_seconds: 0.4
+    acknowledge: true
+    conversation_mode: true
+    conversation_timeout_seconds: 20
+    always_listen: false
   command_timeout_seconds: 6
   max_command_seconds: 12
   min_word_confidence: 0.55
@@ -62,6 +78,18 @@ deepseek:
   max_tokens: 400
   max_retries: 2
   temperature: 0.0
+
+dialogue:
+  llm_small_talk: true
+  history_turns: 8
+  user_title: сер
+  max_reply_sentences: 3
+  temperature: 0.8
+
+location:
+  city: Київ
+  latitude: null
+  longitude: null
 
 music:
   backend: vlc

@@ -16,6 +16,7 @@ from jarvis.core.paths import AppPaths
 from jarvis.core.scheduler import Scheduler
 from jarvis.nlu.deepseek_client import DeepSeekClient
 from jarvis.nlu.deepseek_intents import DeepSeekIntentResolver
+from jarvis.nlu.dialogue import DialogueEngine
 from jarvis.nlu.fuzzy_matcher import FuzzyMatcher, PhraseSimilarity
 from jarvis.nlu.intent_actions import IntentActionMapper
 from jarvis.nlu.intent_parser import IntentParser
@@ -61,7 +62,9 @@ from jarvis.skills.apps.sources import (
 )
 from jarvis.skills.base import SkillDispatcher, SkillRegistry
 from jarvis.skills.bindings import BindingsSkill
+from jarvis.skills.calculator import CalculatorSkill, ExpressionTranslator, SafeCalculator
 from jarvis.skills.conversation import ConversationSkill
+from jarvis.skills.input_control import WindowsInputController
 from jarvis.skills.media_soundcloud.player import BrowserPlayer, MusicPlayer, VlcPlayer
 from jarvis.skills.media_soundcloud.recommender import (
     DeepSeekMusicRecommender,
@@ -78,6 +81,7 @@ from jarvis.skills.media_soundcloud.search import (
     YtDlpStreamResolver,
 )
 from jarvis.skills.media_soundcloud.skill import MusicService, MusicSkill
+from jarvis.skills.plan import PlanSkill
 from jarvis.skills.platform import ShellOpener, is_windows
 from jarvis.skills.reminders import ReminderService, RemindersSkill
 from jarvis.skills.screenshots import (
@@ -89,8 +93,17 @@ from jarvis.skills.screenshots import (
     Win32ClipboardWriter,
 )
 from jarvis.skills.system import PycawVolumeController, SystemSkill, WindowsPowerController
+from jarvis.skills.system_extras import SystemExtrasSkill, WindowsPowerExtras
+from jarvis.skills.system_info import PsutilProbe, SystemInfoSkill
 from jarvis.skills.timers import TimerService, TimersSkill
+from jarvis.skills.weather import OpenMeteoClient, WeatherSkill
+from jarvis.skills.web_search import WebSearchSkill
+from jarvis.skills.window_control import WindowControlSkill
+from jarvis.skills.window_manager import Win32WindowManager
+from jarvis.skills.youtube import YouTubePlaySkill, YtDlpYouTubeSearch
+from jarvis.skills.youtube_control import YouTubeControlSkill
 from jarvis.speech.audio_io import AudioPlayer, MicrophoneStream, UtteranceRecorder
+from jarvis.speech.audio_preprocess import AudioPreprocessor
 from jarvis.speech.grammar import GrammarProvider, command_keywords
 from jarvis.speech.listener import VoiceListener
 from jarvis.speech.recognizer_vosk import (
@@ -100,8 +113,10 @@ from jarvis.speech.recognizer_vosk import (
     VoskRecognizerFactory,
     VoskResultParser,
 )
+from jarvis.speech.transcriber import Transcriber
 from jarvis.speech.tts import EdgeTtsSpeaker, FallbackSpeaker, Pyttsx3Speaker, SpeechService
 from jarvis.speech.wake_word import WakeWordDetector, WakeWordMatcher
+from jarvis.speech.whisper_engine import WhisperModelProvider, WhisperTranscriber
 from jarvis.storage.db import Database
 from jarvis.storage.migrations import Migrator
 from jarvis.storage.repositories import Repositories
@@ -137,6 +152,8 @@ class SpeechBundle:
     microphone: MicrophoneStream
     models: VoskModelProvider
     transcriber: SpeechTranscriber
+    command_transcriber: Transcriber
+    whisper_provider: WhisperModelProvider | None
     grammar: GrammarProvider
     wake_matcher: WakeWordMatcher
     listener: VoiceListener
@@ -183,6 +200,7 @@ class Application:
             component.start()
         self._skills.reminders.start()
         self._schedule_indexing()
+        self._preload_whisper()
         self._start_voice()
         self._bus.publish(SpeakRequested(STARTUP_GREETING))
         try:
@@ -194,6 +212,11 @@ class Application:
         settings = self._config.programs
         if settings.reindex_on_start and self._skills.indexer.needs_rescan(settings.reindex_max_age_hours):
             self._skills.indexer.rescan_async()
+
+    def _preload_whisper(self) -> None:
+        provider = self._speech.whisper_provider
+        if provider is not None and self._config.speech.whisper.preload:
+            provider.preload_async()
 
     def _start_voice(self) -> None:
         primary = self._config.speech.primary_language
@@ -229,13 +252,14 @@ def build_application(paths: AppPaths) -> Application:
     repositories = Repositories.create(database)
     bus = EventBus()
     scheduler = Scheduler()
+    context = DialogContext(conversation_mode=config.speech.wake.conversation_mode)
     stats_service = DeepSeekStatsService(
         bus, repositories.deepseek_stats, repositories.deepseek_cache, repositories.bindings, repositories.history
     )
-    nlu = _build_nlu(config, repositories, bus, stats_service.publish)
-    skills = _build_skills(config, paths, repositories, bus, scheduler, nlu)
+    nlu = _build_nlu(config, repositories, bus, stats_service.publish, context)
+    skills = _build_skills(config, paths, repositories, bus, scheduler, nlu, context)
     speech = _build_speech(config, paths, bus, nlu)
-    assistant = Assistant(bus, nlu.interpreter, skills.dispatcher, repositories.history, DialogContext())
+    assistant = Assistant(bus, nlu.interpreter, skills.dispatcher, repositories.history, context)
     trainer = _build_trainer(config, paths, bus, repositories, speech, nlu)
     refresher = CatalogRefresher(
         bus, nlu.binding_catalog, nlu.vocabulary_index, nlu.program_catalog, speech.grammar, speech.wake_matcher
@@ -260,7 +284,11 @@ def build_application(paths: AppPaths) -> Application:
 
 
 def _build_nlu(
-    config: AppConfig, repositories: Repositories, bus: EventBus, on_deepseek_call: Callable[[], None]
+    config: AppConfig,
+    repositories: Repositories,
+    bus: EventBus,
+    on_deepseek_call: Callable[[], None],
+    context: DialogContext,
 ) -> NluBundle:
     normalizer = TextNormalizer(wake_words=config.speech.wake.words)
     similarity = PhraseSimilarity()
@@ -284,7 +312,9 @@ def _build_nlu(
             FuzzyBindingStage(binding_catalog, matcher, config.nlu),
             RuleStage(parser),
             DeepSeekCacheStage(repositories.deepseek_cache),
-            DeepSeekStage(DeepSeekIntentResolver(deepseek), repositories.deepseek_cache),
+            DeepSeekStage(
+                DeepSeekIntentResolver(deepseek, history=context.recent_exchanges), repositories.deepseek_cache
+            ),
         )
     )
     interpreter = NluInterpreter(
@@ -347,6 +377,20 @@ def _build_music(config: AppConfig, repositories: Repositories, bus: EventBus, d
     )
 
 
+def _dialogue_status(music: MusicService, context: DialogContext) -> Callable[[], dict[str, str]]:
+    def status() -> dict[str, str]:
+        facts: dict[str, str] = {}
+        track = music.current
+        if track is not None:
+            facts["now_playing"] = track.display_name
+        program = context.last_program
+        if program is not None:
+            facts["last_app"] = program.name
+        return facts
+
+    return status
+
+
 def _build_skills(
     config: AppConfig,
     paths: AppPaths,
@@ -354,11 +398,14 @@ def _build_skills(
     bus: EventBus,
     scheduler: Scheduler,
     nlu: NluBundle,
+    context: DialogContext,
 ) -> SkillBundle:
     opener = ShellOpener()
     player = AudioPlayer()
     launcher = ProgramLauncher(opener)
     alias_builder = ProgramAliasBuilder()
+    input_controller = WindowsInputController()
+    window_manager = Win32WindowManager()
     programs = ProgramService(nlu.program_catalog, launcher, ProcessCloser(config.programs.close_timeout_seconds), bus)
     indexer = ProgramIndexer(
         _program_sources(config),
@@ -378,18 +425,34 @@ def _build_skills(
         paths.resolve(config.screenshots.directory),
         config.screenshots,
     )
+    volume = PycawVolumeController()
+    dialogue = DialogueEngine(
+        nlu.deepseek,
+        context.recent_exchanges,
+        config.dialogue,
+        status=_dialogue_status(music, context),
+    )
     registry = SkillRegistry()
     dispatcher = SkillDispatcher(registry)
     executor = ActionExecutor(programs, opener, folders, urls, music, HotkeySender(), dispatcher.dispatch)
     registry.register_all(
         [
             AppsSkill(programs, indexer, folders, urls, opener),
-            MusicSkill(music, config.music),
+            MusicSkill(music, config.music, input_controller),
             TimersSkill(TimerService(scheduler, bus, player)),
             RemindersSkill(reminders),
             ScreenshotsSkill(screenshots),
-            SystemSkill(PycawVolumeController(), WindowsPowerController(opener), config.system),
-            ConversationSkill(),
+            SystemSkill(volume, WindowsPowerController(opener), config.system),
+            SystemExtrasSkill(bus, volume, WindowsPowerExtras(), opener),
+            WindowControlSkill(input_controller, window_manager),
+            YouTubeControlSkill(input_controller, window_manager),
+            YouTubePlaySkill(YtDlpYouTubeSearch(YtDlpClient()), opener),
+            WebSearchSkill(opener),
+            WeatherSkill(OpenMeteoClient(), config.location),
+            CalculatorSkill(ExpressionTranslator(), SafeCalculator()),
+            SystemInfoSkill(PsutilProbe()),
+            ConversationSkill(dialogue, config.dialogue),
+            PlanSkill(executor),
             BindingsSkill(repositories.bindings, executor, nlu.normalizer, bus),
         ]
     )
@@ -402,6 +465,7 @@ def _build_speech(config: AppConfig, paths: AppPaths, bus: EventBus, nlu: NluBun
     parser = VoskResultParser()
     factory = VoskRecognizerFactory(models, settings.sample_rate)
     transcriber = SpeechTranscriber(factory, parser, settings, models)
+    command_transcriber, whisper_provider = _build_command_transcriber(config, paths, transcriber)
     microphone = MicrophoneStream(settings.sample_rate, settings.block_size, settings.input_device)
     wake_matcher = WakeWordMatcher(settings.wake.words, settings.wake.threshold)
     grammar = GrammarProvider(
@@ -422,12 +486,32 @@ def _build_speech(config: AppConfig, paths: AppPaths, bus: EventBus, nlu: NluBun
         )
         return WakeWordDetector(recognizer, wake_matcher, settings.sample_rate)
 
-    listener = VoiceListener(bus, microphone, transcriber, detector_factory, grammar, settings)
+    listener = VoiceListener(bus, microphone, command_transcriber, detector_factory, grammar, settings)
     player = AudioPlayer()
     edge = EdgeTtsSpeaker(config.tts, paths.resolve(config.tts.cache_dir), player)
     speaker = FallbackSpeaker(edge, Pyttsx3Speaker() if config.tts.offline_fallback else None)
     speech_service = SpeechService(bus, speaker, config.tts, warmup=edge)
-    return SpeechBundle(microphone, models, transcriber, grammar, wake_matcher, listener, speech_service)
+    return SpeechBundle(
+        microphone, models, transcriber, command_transcriber, whisper_provider, grammar, wake_matcher, listener, speech_service
+    )
+
+
+def _build_command_transcriber(
+    config: AppConfig, paths: AppPaths, fallback: SpeechTranscriber
+) -> tuple[Transcriber, WhisperModelProvider | None]:
+    if config.speech.engine.value != "whisper":
+        return fallback, None
+    provider = WhisperModelProvider(config.speech.whisper, paths.resolve)
+    preprocessor = AudioPreprocessor(config.speech.sample_rate) if config.speech.normalize_audio else None
+    whisper = WhisperTranscriber(
+        provider,
+        config.speech.whisper,
+        preprocessor,
+        fallback=fallback,
+        sample_rate=config.speech.sample_rate,
+        min_word_confidence=config.speech.min_word_confidence,
+    )
+    return whisper, provider
 
 
 def _build_trainer(

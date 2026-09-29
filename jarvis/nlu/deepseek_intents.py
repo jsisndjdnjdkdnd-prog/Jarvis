@@ -144,6 +144,7 @@ def resolvable_intents() -> tuple[IntentName, ...]:
 
 def build_intent_system_prompt(now: datetime) -> str:
     intents = "\n".join(f"- {name.value}: {description}" for name, description in _INTENT_GUIDE.items())
+    excluded = ", ".join(sorted(name.value for name in NON_RESOLVABLE_INTENTS))
     return (
         "You are the command parser of a Windows voice assistant called JARVIS. "
         "The user speaks Ukrainian (sometimes Russian or English). The text comes from speech recognition and "
@@ -156,6 +157,7 @@ def build_intent_system_prompt(now: datetime) -> str:
         "'закрий його', 'так' or 'ні'.\n"
         f"Current local datetime: {now.isoformat(timespec='minutes')} ({now.strftime('%A')}).\n"
         f"Allowed intents:\n{intents}\n"
+        f"Handled locally, never output: {excluded}. If several commands are given at once, classify the first one.\n"
         f"Output format: a single JSON object with fields {_ALLOWED_FIELDS}. "
         "Omit or set null the fields that are not relevant. confidence is 0..1. "
         "uses_history = true only if the command cannot be understood without the recent conversation, "
