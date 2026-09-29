@@ -1,0 +1,62 @@
+html,
+body.hud {
+  background: transparent !important;
+  overflow: hidden;
+}
+
+body.hud::before {
+  display: none;
+}
+
+.hud-stage {
+  width: 100vw;
+  height: calc(100vh - 34px);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  opacity: 0.55;
+  transition: opacity 0.4s, transform 0.4s;
+}
+
+.hud-stage:hover,
+body.hud:not([data-state="idle"]) .hud-stage {
+  opacity: 1;
+}
+
+body.hud[data-state="listening"] .hud-stage {
+  transform: scale(1.04);
+}
+
+.hud-stage .reactor {
+  width: 88%;
+  height: 88%;
+  filter: drop-shadow(0 0 18px rgba(0, 0, 0, 0.6));
+}
+
+.hud-caption {
+  height: 34px;
+  display: grid;
+  place-items: center;
+  margin: 0 18px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--state);
+  background: rgba(4, 10, 18, 0.72);
+  border: 1px solid rgba(0, 229, 255, 0.18);
+  text-shadow: 0 0 12px var(--state);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 0.3s, transform 0.3s;
+}
+
+body.hud:not([data-state="idle"]) .hud-caption,
+.hud-stage:hover + .hud-caption {
+  opacity: 1;
+  transform: none;
+}

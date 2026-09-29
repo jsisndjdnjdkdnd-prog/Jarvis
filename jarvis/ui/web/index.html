@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>J.A.R.V.I.S.</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body data-state="idle">
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <div data-reactor="mini"></div>
+        <div>
+          <div class="brand-title">J.A.R.V.I.S.</div>
+          <div class="brand-sub">Stark Industries</div>
+        </div>
+      </div>
+      <nav id="nav"></nav>
+      <div class="sidebar-footer">
+        <div class="system-card">
+          <strong id="system-title">Системи онлайн</strong>
+          <span id="system-sub">Скажіть «Джарвіс» або натисніть Ctrl+Alt+J</span>
+        </div>
+        <button class="btn ghost" data-action="toggle-hud"><span data-icon="eye"></span>HUD</button>
+      </div>
+    </aside>
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <h1 id="view-title">Головна</h1>
+          <div class="subtitle" id="view-subtitle"></div>
+        </div>
+        <div class="spacer"></div>
+        <div class="now-playing" id="now-playing">
+          <div class="eq"><i></i><i></i><i></i></div>
+          <span class="title" id="now-playing-title"></span>
+        </div>
+        <div class="status-pill">
+          <span class="status-dot"></span>
+          <span id="status-label">Очікую «Джарвіс»</span>
+          <div class="meter" id="top-meter"></div>
+        </div>
+        <button class="mic-btn" id="top-mic" data-action="listen" title="Слухати"><span data-icon="mic"></span></button>
+      </header>
+      <section class="content">
+        <div class="view" id="view-home"></div>
+        <div class="view" id="view-bindings"></div>
+        <div class="view" id="view-words"></div>
+        <div class="view" id="view-programs"></div>
+        <div class="view" id="view-reminders"></div>
+        <div class="view" id="view-settings"></div>
+        <div class="view" id="view-stats"></div>
+      </section>
+    </main>
+  </div>
+  <div class="toasts" id="toasts"></div>
+  <div id="modal-root"></div>
+  <script src="core.js"></script>
+  <script src="reactor.js"></script>
+  <script src="home.js"></script>
+  <script src="bindings_editor.js"></script>
+  <script src="training_dialog.js"></script>
+  <script src="programs.js"></script>
+  <script src="reminders.js"></script>
+  <script src="settings.js"></script>
+  <script src="stats.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>
