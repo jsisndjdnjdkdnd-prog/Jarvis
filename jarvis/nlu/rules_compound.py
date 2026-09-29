@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 
-from jarvis.core.intent import Action, ActionType, Intent, IntentName
+from jarvis.core.intent import Action, Intent, IntentName
 from jarvis.nlu import lexicon as lx
 from jarvis.nlu.intent_actions import IntentActionMapper
 from jarvis.nlu.prepared_text import PreparedText

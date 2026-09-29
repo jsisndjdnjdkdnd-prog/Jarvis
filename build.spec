@@ -16,6 +16,7 @@ binaries = []
 binaries += collect_dynamic_libs("vosk")
 binaries += collect_dynamic_libs("miniaudio")
 binaries += collect_dynamic_libs("webview")
+binaries += collect_dynamic_libs("ctranslate2")
 
 hiddenimports = []
 hiddenimports += collect_submodules("dateparser")
@@ -23,6 +24,8 @@ hiddenimports += collect_submodules("pycaw")
 hiddenimports += collect_submodules("comtypes")
 hiddenimports += collect_submodules("yt_dlp.extractor.soundcloud")
 hiddenimports += collect_submodules("webview.platforms")
+hiddenimports += collect_submodules("faster_whisper")
+datas += collect_data_files("faster_whisper")
 hiddenimports += [
     "pystray._win32",
     "clr",

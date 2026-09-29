@@ -113,7 +113,7 @@ def test_youtube_control(
         ("згорни вікно", WindowCommand.MINIMIZE),
         ("розгорни вікно", WindowCommand.MAXIMIZE),
         ("закрий вікно", WindowCommand.CLOSE),
-        ("закрий всі вікна", WindowCommand.CLOSE_ALL),
+        ("закрий всі вікна", WindowCommand.MINIMIZE_ALL),
         ("нова вкладка", WindowCommand.NEW_TAB),
         ("закрий вкладку", WindowCommand.CLOSE_TAB),
         ("онови сторінку", WindowCommand.REFRESH),

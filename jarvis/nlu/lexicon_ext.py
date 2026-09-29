@@ -182,7 +182,7 @@ WINDOW_PHRASES: tuple[tuple[tuple[str, ...], WindowCommand], ...] = (
      WindowCommand.MAXIMIZE),
     (("віднови вікно", "віднови розмір вікна", "восстанови окно"), WindowCommand.RESTORE),
     (("закрий всі вікна", "закрий усі вікна", "закрий все вікна", "позакривай вікна", "позакривай всі вікна",
-      "закрой все окна", "close all windows"), WindowCommand.CLOSE_ALL),
+      "прибери всі вікна", "закрой все окна", "close all windows"), WindowCommand.MINIMIZE_ALL),
     (("закрий вікно", "закрий це вікно", "закрий поточне вікно", "закрой окно", "close window"),
      WindowCommand.CLOSE),
     (("перемкни вікно", "наступне вікно", "інше вікно", "альт таб", "переключи окно", "switch window"),
