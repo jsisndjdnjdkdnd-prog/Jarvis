@@ -1,0 +1,18 @@
+[project]
+name = "jarvis-assistant"
+version = "1.0.0"
+description = "J.A.R.V.I.S. — офлайн голосовий асистент для Windows українською"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["jarvis/tests"]
+pythonpath = ["."]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "E722"]
+ignore = ["E501"]

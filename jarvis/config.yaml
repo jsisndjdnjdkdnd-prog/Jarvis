@@ -1,0 +1,112 @@
+app:
+  name: J.A.R.V.I.S.
+  log_level: INFO
+  log_file: data/logs/jarvis.log
+  data_dir: data
+
+storage:
+  database: data/jarvis.db
+
+speech:
+  sample_rate: 16000
+  block_size: 2000
+  input_device: null
+  primary_language: uk
+  models:
+    uk: models/vosk-model-uk-v3
+    ru: models/vosk-model-small-ru-0.22
+    en: models/vosk-model-small-en-us-0.15
+  secondary_languages:
+    - en
+    - ru
+  secondary_min_confidence: 0.6
+  wake:
+    enabled: true
+    words:
+      - джарвіс
+      - джарвис
+      - jarvis
+    threshold: 80
+    min_command_tail_seconds: 0.4
+  command_timeout_seconds: 6
+  max_command_seconds: 12
+  min_word_confidence: 0.55
+  grammar_enabled: true
+
+tts:
+  enabled: true
+  voice: uk-UA-OstapNeural
+  rate: "+0%"
+  volume: "+0%"
+  cache_dir: data/tts_cache
+  offline_fallback: true
+
+nlu:
+  binding_threshold: 80
+  program_threshold: 78
+  alias_threshold: 78
+  alias_prefilter: 55
+  alias_weight: 0.6
+  acoustic_weight: 0.4
+  vocabulary_decision_threshold: 0.62
+  alias_max_window: 4
+  alias_reward: 0.05
+  alias_penalty: 0.25
+  alias_min_weight: 0.3
+
+deepseek:
+  enabled: true
+  base_url: https://api.deepseek.com
+  model: deepseek-chat
+  timeout_seconds: 15
+  max_tokens: 400
+  max_retries: 2
+  temperature: 0.0
+
+music:
+  backend: vlc
+  soundcloud_client_id: null
+  search_results: 5
+  recent_history_size: 20
+  volume_step: 10
+  initial_volume: 70
+
+screenshots:
+  directory: ~/Pictures/Jarvis
+  copy_to_clipboard: true
+  region_timeout_seconds: 30
+
+system:
+  volume_step: 10
+  shutdown_delay_seconds: 5
+
+reminders:
+  check_interval_seconds: 15
+  default_hour: 9
+
+programs:
+  reindex_on_start: true
+  reindex_max_age_hours: 24
+  scan_depth: 3
+  close_timeout_seconds: 3
+
+training:
+  min_samples: 3
+  recommended_samples: 5
+  max_sample_seconds: 3.0
+  end_silence_seconds: 0.6
+  voice_dir: data/voice
+  mfcc_features: 13
+  alternatives: 5
+  threshold_std_factor: 2.0
+  threshold_min_margin: 1.15
+
+ui:
+  window_width: 1320
+  window_height: 840
+  hud_enabled: true
+  hud_size: 210
+  push_to_talk_hotkey: ctrl+alt+j
+  start_minimized: false
+  tray_enabled: true
+  devtools: false
